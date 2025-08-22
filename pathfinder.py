@@ -1,4 +1,4 @@
-# SymbolPathFinder.py
+# pathfinder.py
 # @category Analysis
 # @author Sectorus
 
