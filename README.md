@@ -14,7 +14,7 @@ A Ghidra script that finds execution paths between two symbols in a binary. This
 ## How to Run in Ghidra
 
 1. **Install the Script**:
-   - Save the script as `SymbolPathFinder.py` in your Ghidra scripts directory
+   - Save the script as `pathfinder.py` in your Ghidra scripts directory
    - Default location: `$USER_HOME/ghidra_scripts/`
 
 2. **Open Ghidra**:
@@ -22,7 +22,7 @@ A Ghidra script that finds execution paths between two symbols in a binary. This
    - Open the **Script Manager** via **Window → Script Manager**
 
 3. **Run the Script**:
-   - Find `SymbolPathFinder.py` in the script list
+   - Find `pathfinder.py` in the script list
    - Click the green **Run Script** button
    - Enter your **source symbol name** (e.g., `DisplayMainMenu`)
    - Enter your **target symbol name** (e.g., `Draw`)
