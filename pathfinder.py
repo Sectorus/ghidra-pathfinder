@@ -8,12 +8,12 @@ import java.io.FileWriter as FileWriter
 import java.io.PrintWriter as PrintWriter
 import java.util.Date as Date
 
-src_name = askString("Source Symbol", "Enter the source symbol name (e.g., DisplayMainMenu):")
-if src_name is None:
+src_input = askString("Source", "Enter source symbol name or address (e.g., DisplayMainMenu or 0x401000):")
+if src_input is None:
     exit()
 
-tgt_name = askString("Target Symbol", "Enter the target symbol name (e.g., Draw):")
-if tgt_name is None:
+tgt_input = askString("Target", "Enter target symbol name or address (e.g., Draw or 0x402000):")
+if tgt_input is None:
     exit()
 
 import java.lang.System as System
@@ -25,20 +25,52 @@ def log_both(message):
     writer.println(message)
     writer.flush()
 
-def getSymbolByName(name):
-    symbol_table = currentProgram.getSymbolTable()
-    symbols = symbol_table.getSymbols(name)
-    for sym in symbols:
-        return sym
-    return None
+def parseInput(input_str):
+    """Parse input as either symbol name or address"""
+    if input_str.startswith("0x") or input_str.startswith("0X"):
+        try:
+            addr = currentProgram.getAddressFactory().getAddress(input_str)
+            return "address", addr
+        except:
+            return "invalid", None
+    elif all(c in "0123456789ABCDEFabcdef" for c in input_str):
+        try:
+            addr = currentProgram.getAddressFactory().getAddress("0x" + input_str)
+            return "address", addr
+        except:
+            return "symbol", input_str
+    else:
+        return "symbol", input_str
 
-def getAllSymbolsByName(name):
-    symbol_table = currentProgram.getSymbolTable()
-    symbols = symbol_table.getSymbols(name)
-    return list(symbols)
+def getSymbolsFromInput(input_str):
+    """Get symbols from either symbol name or address"""
+    input_type, value = parseInput(input_str)
+    
+    if input_type == "invalid":
+        return []
+    elif input_type == "address":
+        symbol = currentProgram.getSymbolTable().getPrimarySymbol(value)
+        if symbol:
+            return [symbol]
+        else:
+            class PseudoSymbol:
+                def __init__(self, address):
+                    self.address = address
+                def getName(self):
+                    return "addr_{}".format(self.address)
+                def getAddress(self):
+                    return self.address
+                def __eq__(self, other):
+                    return hasattr(other, 'getAddress') and self.address == other.getAddress()
+                def __hash__(self):
+                    return hash(str(self.address))
+            return [PseudoSymbol(value)]
+    else:
+        symbol_table = currentProgram.getSymbolTable()
+        symbols = symbol_table.getSymbols(value)
+        return list(symbols)
 
 def getCalledSymbols(symbol):
-    """Get all symbols called/referenced by the given symbol"""
     called = []
     listing = currentProgram.getListing()
 
@@ -52,6 +84,22 @@ def getCalledSymbols(symbol):
                     to_sym = currentProgram.getSymbolTable().getPrimarySymbol(to_address)
                     if to_sym and to_sym not in called and to_sym != symbol:
                         called.append(to_sym)
+                    elif not to_sym and to_address != symbol.getAddress():
+                        # Create pseudo-symbol for addresses without symbols
+                        class PseudoSymbol:
+                            def __init__(self, address):
+                                self.address = address
+                            def getName(self):
+                                return "addr_{}".format(self.address)
+                            def getAddress(self):
+                                return self.address
+                            def __eq__(self, other):
+                                return hasattr(other, 'getAddress') and self.address == other.getAddress()
+                            def __hash__(self):
+                                return hash(str(self.address))
+                        pseudo_sym = PseudoSymbol(to_address)
+                        if pseudo_sym not in called:
+                            called.append(pseudo_sym)
     else:
         refs = getReferencesFrom(symbol.getAddress())
         for ref in refs:
@@ -60,10 +108,24 @@ def getCalledSymbols(symbol):
                 to_sym = currentProgram.getSymbolTable().getPrimarySymbol(to_address)
                 if to_sym and to_sym not in called and to_sym != symbol:
                     called.append(to_sym)
+                elif not to_sym and to_address != symbol.getAddress():
+                    class PseudoSymbol:
+                        def __init__(self, address):
+                            self.address = address
+                        def getName(self):
+                            return "addr_{}".format(self.address)
+                        def getAddress(self):
+                            return self.address
+                        def __eq__(self, other):
+                            return hasattr(other, 'getAddress') and self.address == other.getAddress()
+                        def __hash__(self):
+                            return hash(str(self.address))
+                    pseudo_sym = PseudoSymbol(to_address)
+                    if pseudo_sym not in called:
+                        called.append(pseudo_sym)
     return called
 
 def find_paths(start_sym, target_sym, max_depth=15):
-    """Find all paths from start_sym to target_sym using BFS"""
     paths = []
     queue = deque([[start_sym]])
     visited = set()
@@ -72,7 +134,8 @@ def find_paths(start_sym, target_sym, max_depth=15):
         path = queue.popleft()
         current = path[-1]
 
-        if current == target_sym or current.getName() == target_sym.getName():
+        # Check for match (symbol or address)
+        if current == target_sym or current.getName() == target_sym.getName() or current.getAddress() == target_sym.getAddress():
             paths.append(path)
             continue
 
@@ -93,43 +156,47 @@ log_both("=" * 80)
 log_both("GHIDRA SYMBOL PATH FINDER RESULTS")
 log_both("=" * 80)
 log_both("Program: {}".format(currentProgram.getName()))
-log_both("Source Symbol: {}".format(src_name))
-log_both("Target Symbol: {}".format(tgt_name))
+log_both("Source: {}".format(src_input))
+log_both("Target: {}".format(tgt_input))
 log_both("Generated: {}".format(java.util.Date()))
 log_both("=" * 80)
 
 log_both("Symbol Path Finder - Searching in {}".format(currentProgram.getName()))
 
-src_symbols = getAllSymbolsByName(src_name)
-tgt_symbols = getAllSymbolsByName(tgt_name)
+src_symbols = getSymbolsFromInput(src_input)
+tgt_symbols = getSymbolsFromInput(tgt_input)
 
 if not src_symbols:
-    log_both("Source symbol '{}' not found.".format(src_name))
-    log_both("Available symbols containing '{}':".format(src_name))
-    symbol_table = currentProgram.getSymbolTable()
-    all_symbols = symbol_table.getAllSymbols(True)
-    count = 0
-    for sym in all_symbols:
-        if src_name.lower() in sym.getName().lower() and count < 10:
-            log_both("  - {}".format(sym.getName()))
-            count += 1
+    log_both("Source '{}' not found or invalid.".format(src_input))
+    src_type, _ = parseInput(src_input)
+    if src_type == "symbol":
+        log_both("Available symbols containing '{}':".format(src_input))
+        symbol_table = currentProgram.getSymbolTable()
+        all_symbols = symbol_table.getAllSymbols(True)
+        count = 0
+        for sym in all_symbols:
+            if src_input.lower() in sym.getName().lower() and count < 10:
+                log_both("  - {} @ {}".format(sym.getName(), sym.getAddress()))
+                count += 1
     writer.close()
     exit()
 
 if not tgt_symbols:
-    log_both("Target symbol '{}' not found.".format(tgt_name))
-    log_both("Available symbols containing '{}':".format(tgt_name))
-    symbol_table = currentProgram.getSymbolTable()
-    all_symbols = symbol_table.getAllSymbols(True)
-    count = 0
-    for sym in all_symbols:
-        if tgt_name.lower() in sym.getName().lower() and count < 10:
-            log_both("  - {}".format(sym.getName()))
-            count += 1
+    log_both("Target '{}' not found or invalid.".format(tgt_input))
+    tgt_type, _ = parseInput(tgt_input)
+    if tgt_type == "symbol":
+        log_both("Available symbols containing '{}':".format(tgt_input))
+        symbol_table = currentProgram.getSymbolTable()
+        all_symbols = symbol_table.getAllSymbols(True)
+        count = 0
+        for sym in all_symbols:
+            if tgt_input.lower() in sym.getName().lower() and count < 10:
+                log_both("  - {} @ {}".format(sym.getName(), sym.getAddress()))
+                count += 1
     writer.close()
     exit()
 
-log_both("Found {} source symbol(s) and {} target symbol(s)".format(len(src_symbols), len(tgt_symbols)))
+log_both("Found {} source(s) and {} target(s)".format(len(src_symbols), len(tgt_symbols)))
 
 all_paths = []
 for src_sym in src_symbols:
@@ -142,8 +209,8 @@ for src_sym in src_symbols:
         all_paths.extend(paths)
 
 if not all_paths:
-    log_both("No path found from {} to {}.".format(src_name, tgt_name))
-    log_both("Try increasing max_depth or check if symbols are actually connected.")
+    log_both("No path found from {} to {}.".format(src_input, tgt_input))
+    log_both("Try increasing max_depth or check if symbols/addresses are actually connected.")
 else:
     all_paths.sort(key=lambda path: len(path))
     
